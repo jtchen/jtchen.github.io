@@ -1,12 +1,40 @@
-// [FINAL VERSION] app.js with Service Worker and robust IndexedDB persistence
+// @author Jian-Ting Chen (with assistance from Google Gemini)
+// Copyright (C) 2025 Leyihuo Co., Ltd. All rights reserved.
+//
+// Complete client-side application logic for the Cobb PWA, including
+// interactive tagging, file system access, and an on-screen debug console.
 
-// --- 0. Service Worker Registration ---
+// --- 0. On-Screen Debugger & Service Worker ---
+
+const debugLogEl = document.getElementById('debug-log');
+
+function logToScreen(message, type = 'log') {
+    if (debugLogEl) {
+        const p = document.createElement('p');
+        const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
+        p.textContent = `[${timestamp}] ${message}`;
+        if (type === 'error') p.style.color = '#ff8a80';
+        if (type === 'warn') p.style.color = '#ffd180';
+        debugLogEl.appendChild(p);
+        debugLogEl.scrollTop = debugLogEl.scrollHeight;
+    }
+}
+
+// Override console methods to also log to the on-screen console
+const originalLog = console.log;
+const originalWarn = console.warn;
+const originalError = console.error;
+console.log = function() { logToScreen(Array.from(arguments).join(' ')); originalLog.apply(console, arguments); };
+console.warn = function() { logToScreen(Array.from(arguments).join(' '), 'warn'); originalWarn.apply(console, arguments); };
+console.error = function() { logToScreen(Array.from(arguments).join(' '), 'error'); originalError.apply(console, arguments); };
+
+
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js').then(registration => {
             console.log('ServiceWorker registration successful');
         }, err => {
-            console.log('ServiceWorker registration failed: ', err);
+            console.error('ServiceWorker registration failed: ', err);
         });
     });
 }
@@ -42,26 +70,20 @@ async function getHandle(id) {
     const request = store.get(id);
     return new Promise((resolve) => {
         request.onsuccess = () => resolve(request.result ? request.result.handle : null);
-        request.onerror = () => resolve(null); // Resolve with null on error
+        request.onerror = () => resolve(null);
     });
 }
-
-// [MODIFIED] Simplified permission verification
 async function verifyPermission(handle) {
     if (!handle) return false;
     const options = { mode: 'readwrite' };
-    // A user gesture is required for requestPermission, so we first check the current state.
-    // If it's already granted, we are good.
     if (await handle.queryPermission(options) === 'granted') {
       return true;
     }
-    // If not, we cannot prompt automatically on load. We must wait for a user action.
     return false;
 }
 
-
 document.addEventListener('DOMContentLoaded', () => {
-    // ... (The rest of your app.js code: State, DOM Refs, etc. remain unchanged) ...
+    // --- 1. Global State & Constants ---
     let dirHandle;
     let allRecords = [];
     let vocabulary = new Set();
@@ -69,6 +91,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let pendingTags = new Set();
     const RECORD_SEPARATOR_PATTERN = /={40,}/;
     const HIDDEN_TAG_NAME = "隱藏貼文";
+
+    // --- 2. DOM Element References ---
     const startupView = document.getElementById('startup-view');
     const mainView = document.getElementById('main-view');
     const selectDirBtn = document.getElementById('btn-select-dir');
@@ -83,19 +107,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const addNewBtn = document.getElementById('btn-add-new');
     const saveNextBtn = document.getElementById('btn-save-next');
     const hideBtn = document.getElementById('btn-hide');
+    const btnCheckHandle = document.getElementById('btn-check-handle');
+    const btnClearLog = document.getElementById('btn-clear-log');
 
-    /**
-     * [MODIFIED] Tries to load the saved directory handle from IndexedDB on startup.
-     */
+    // --- 3. Core Functions ---
+
     async function initializeApp() {
+        console.log("Initializing App...");
         const savedHandle = await getHandle('pasivDir');
-        // Only check for permission, do not request it automatically.
-        if (savedHandle && await verifyPermission(savedHandle)) {
-            console.log("Restored directory access from saved handle.");
-            dirHandle = savedHandle;
-            await promptAndLoad(); 
+        if (savedHandle) {
+            console.log("Found saved handle in IndexedDB.");
+            if (await verifyPermission(savedHandle)) {
+                console.log("Permission for saved handle is 'granted'.");
+                dirHandle = savedHandle;
+                await promptAndLoad();
+            } else {
+                console.warn("Permission for saved handle is NOT 'granted'. Showing startup view.");
+                startupView.style.display = 'block';
+                mainView.style.display = 'none';
+            }
         } else {
-            console.log("No saved handle or permission not granted. Showing startup view.");
+            console.log("No saved handle found. Showing startup view.");
             startupView.style.display = 'block';
             mainView.style.display = 'none';
         }
@@ -103,29 +135,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function selectDirectory() {
         try {
+            console.log("Requesting directory picker...");
             const handle = await window.showDirectoryPicker();
-            if (!handle) return;
-            
-            // It's crucial to request permission here, right after the user gesture.
+            if (!handle) {
+                console.warn("Directory picker was dismissed.");
+                return;
+            }
+            console.log("Directory selected. Requesting permission...");
             if (await handle.requestPermission({ mode: 'readwrite' }) === 'granted') {
+                console.log("Permission granted. Saving handle to IndexedDB...");
                 await setHandle('pasivDir', handle);
+                console.log("Handle saved.");
                 dirHandle = handle;
                 await promptAndLoad();
             } else {
+                console.error("Permission to access directory was denied.");
                 alert("Permission to access directory was denied.");
             }
         } catch (error) {
-            console.log('Directory selection cancelled or failed:', error);
+            console.error('Directory selection cancelled or failed:', error);
         }
     }
 
-    // ... (The rest of the functions from promptAndLoad downwards remain the same)
     async function promptAndLoad() {
         const scope = prompt("Enter mission scope (e.g., 2022 or 2022-12). Leave empty to load all.");
         if (scope === null) {
             alert("Mission cancelled.");
-            // If the main view is not yet visible, it means we are still in the startup phase.
-            if(mainView.style.display === 'none') {
+            if (mainView.style.display === 'none') {
                 startupView.style.display = 'block';
             }
             return;
@@ -144,223 +180,245 @@ document.addEventListener('DOMContentLoaded', () => {
             startupView.style.display = 'block';
         }
     }
+
     function filterRecordsByScope(records, scope) {
         return records.filter(record => {
-           const isHidden = record.tags.includes(HIDDEN_TAG_NAME);
-           if (isHidden) return false;
-           if (scope.trim() === '') return true;
-           return record.timestamp.startsWith(scope);
-       });
-   }
-   async function loadAllFiles(handle) {
-       let allFileRecords = [];
-       for await (const entry of handle.values()) {
-           if (entry.kind === 'file' && entry.name.endsWith('.txt')) {
-               try {
-                   const file = await entry.getFile();
-                   const text = await file.text();
-                   allFileRecords.push(...parseTotemFile(text));
-               } catch(e) {
-                   console.error(`Could not read or parse file: ${entry.name}`, e);
-               }
-           }
-       }
-       allFileRecords.sort((a, b) => a.index.localeCompare(b.index));
-       return allFileRecords;
-   }
-   function parseTotemFile(fileContent) {
-       const records = [];
-       const recordBlocks = fileContent.split(RECORD_SEPARATOR_PATTERN);
-       for (const block of recordBlocks) {
-           if (block.trim() === '') continue;
-           const lines = block.trim().split('\n');
-           const record = { tags: [] };
-           let isContentSection = false;
-           const contentLines = [];
-           for (const line of lines) {
-               if (isContentSection) {
-                   contentLines.push(line);
-                   continue;
-               }
-               if (line.trim() === '---') {
-                   isContentSection = true;
-                   continue;
-               }
-               const parts = line.split(/:/);
-               if (parts.length > 1) {
-                   const key = parts[0].trim();
-                   const value = parts.slice(1).join(':').trim();
-                   switch (key) {
-                       case 'Index': record.index = value; break;
-                       case 'Timestamp': record.timestamp = value; break;
-                       case 'Source': record.source = value; break;
-                       case 'CharCount': record.charCount = value; break;
-                       case 'Tags':
-                           if (value) record.tags = value.split(',').map(t => t.trim()).filter(t => t);
-                           break;
-                   }
-               }
-           }
-           record.content = contentLines.join('\n').trim();
-           records.push(record);
-       }
-       return records;
-   }
-   function buildVocabulary(records) {
-       vocabulary.clear();
-       records.forEach(record => {
-           if (record.tags) {
-               record.tags.forEach(tag => vocabulary.add(tag));
-           }
-       });
-   }
-   function displayVocabulary() {
-       allTagsContainer.innerHTML = '';
-       [...vocabulary].sort().forEach(tag => {
-           if (tag === HIDDEN_TAG_NAME) return;
-           const tagPill = createTagPill(tag);
-           allTagsContainer.appendChild(tagPill);
-       });
-   }
-   function displayCurrentTags() {
-       currentTagsContainer.innerHTML = '';
-       if (pendingTags.size > 0) {
-           [...pendingTags].sort().forEach(tag => {
-               const tagPill = createTagPill(tag, true);
-               currentTagsContainer.appendChild(tagPill);
-           });
-       }
-   }
-   function createTagPill(tagName, withRemove = false) {
-       const tagPill = document.createElement('span');
-       tagPill.className = 'tag-pill';
-       tagPill.textContent = tagName;
-       tagPill.dataset.tag = tagName;
-       if (withRemove) {
-           const removeBtn = document.createElement('span');
-           removeBtn.className = 'tag-remove';
-           removeBtn.innerHTML = ' &times;';
-           tagPill.appendChild(removeBtn);
-       }
-       return tagPill;
-   }
-   function displayRecord(index) {
-       if (allRecords.length === 0) {
-           mainView.innerHTML = "<h1>Mission Complete</h1><p>All records in this scope have been processed.</p><button onclick='location.reload()'>Start New Mission</button>";
-           return;
-       }
-       if (index < 0 || index >= allRecords.length) {
-           index = Math.max(0, Math.min(index, allRecords.length - 1));
-       }
-       currentIndex = index;
-       const record = allRecords[currentIndex];
-       pendingTags = new Set(record.tags);
-       progressDisplay.textContent = `Memory Node: ${currentIndex + 1} / ${allRecords.length}`;
-       recordIndex.textContent = record.index || 'N/A';
-       recordTimestamp.textContent = record.timestamp || 'N/A';
-       recordCharCount.textContent = record.charCount || 'N/A';
-       contentView.textContent = record.content || '';
-       displayCurrentTags();
-       displayVocabulary();
-   }
-   function handleAddTagClick(e) {
-       if (e.target && e.target.classList.contains('tag-pill')) {
-           const tagName = e.target.dataset.tag;
-           if (tagName && !pendingTags.has(tagName)) {
-               pendingTags.add(tagName);
-               displayCurrentTags();
-           }
-       }
-   }
-   function handleRemoveTagClick(e) {
-       if (e.target && e.target.classList.contains('tag-remove')) {
-           const tagName = e.target.parentElement.dataset.tag;
-           if (tagName) {
-               pendingTags.delete(tagName);
-               displayCurrentTags();
-           }
-       }
-   }
-   async function navigate(direction) {
-       await saveCurrentRecord();
-       const newIndex = currentIndex + direction;
-       if (newIndex >= 0 && newIndex < allRecords.length) {
-           displayRecord(newIndex);
-       } else {
-           alert(direction > 0 ? "You've reached the last record of this mission." : "You're at the first record of this mission.");
-       }
-   }
-   function handleAddNewConcept() {
-       const newTag = prompt("Enter new concept name:");
-       if (newTag && newTag.trim() !== '') {
-           const trimmedTag = newTag.trim();
-           if (vocabulary.has(trimmedTag)) {
-               alert(`Concept '${trimmedTag}' already exists.`);
-           } else {
-               vocabulary.add(trimmedTag);
-               pendingTags.add(trimmedTag);
-               displayVocabulary();
-               displayCurrentTags();
-           }
-       }
-   }
-   async function handleHideRecord() {
-       if (allRecords.length === 0) return;
-       const recordToHide = allRecords[currentIndex];
-       const confirmation = confirm(`Are you sure you want to hide this record?\n\nIndex: ${recordToHide.index}\nThis action cannot be easily undone.`);
-       if (confirmation) {
-           pendingTags.add(HIDDEN_TAG_NAME);
-           await saveCurrentRecord();
-           allRecords.splice(currentIndex, 1);
-           displayRecord(currentIndex);
-       }
-   }
-   async function saveCurrentRecord() {
-       if (currentIndex < 0 || currentIndex >= allRecords.length) return;
-       const currentRecord = allRecords[currentIndex];
-       const originalTags = new Set(currentRecord.tags);
-       if (originalTags.size === pendingTags.size && [...originalTags].every(tag => pendingTags.has(tag))) {
-           return;
-       }
-       console.log(`Solidifying memory... Saving changes to ${currentRecord.index}`);
-       currentRecord.tags = [...pendingTags].sort();
-       try {
-           const year = currentRecord.index.split('-')[1];
-           const fileName = `${year}.txt`;
-           const allYearRecordsText = await dirHandle.getFileHandle(fileName).then(fh => fh.getFile()).then(f => f.text()).catch(() => "");
-           const allYearRecords = parseTotemFile(allYearRecordsText);
-           const recordToUpdateIndex = allYearRecords.findIndex(r => r.index === currentRecord.index);
-           if (recordToUpdateIndex > -1) {
-               allYearRecords[recordToUpdateIndex] = currentRecord;
-           } else {
-               allYearRecords.push(currentRecord);
-               allYearRecords.sort((a,b) => a.index.localeCompare(b.index));
-           }
-           const newFileContent = serializeTotemFile(allYearRecords);
-           const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
-           const writable = await fileHandle.createWritable();
-           await writable.write(newFileContent);
-           await writable.close();
-           console.log("Save successful.");
-       } catch (error) {
-           console.error("Failed to save file:", error);
-           alert("Error: Could not save changes to the file.");
-       }
-   }
-   function serializeTotemFile(records) {
-       return records.map(record => {
-           let block = `Index: ${record.index}\n`;
-           block += `Timestamp: ${record.timestamp}\n`;
-           block += `Source: ${record.source}\n`;
-           block += `Tags: ${record.tags ? record.tags.join(', ') : ''}\n`;
-           block += `CharCount: ${record.charCount}\n`;
-           block += `---\n`;
-           block += `${record.content.trim()}\n`;
-           return block;
-       }).join("========================================\n");
-   }
+            const isHidden = record.tags.includes(HIDDEN_TAG_NAME);
+            if (isHidden) return false;
+            if (scope.trim() === '') return true;
+            return record.timestamp.startsWith(scope);
+        });
+    }
+
+    async function loadAllFiles(handle) {
+        let allFileRecords = [];
+        for await (const entry of handle.values()) {
+            if (entry.kind === 'file' && entry.name.endsWith('.txt')) {
+                try {
+                    const file = await entry.getFile();
+                    const text = await file.text();
+                    allFileRecords.push(...parseTotemFile(text));
+                } catch (e) {
+                    console.error(`Could not read or parse file: ${entry.name}`, e);
+                }
+            }
+        }
+        allFileRecords.sort((a, b) => a.index.localeCompare(b.index));
+        return allFileRecords;
+    }
+
+    function parseTotemFile(fileContent) {
+        const records = [];
+        const recordBlocks = fileContent.split(RECORD_SEPARATOR_PATTERN);
+        for (const block of recordBlocks) {
+            if (block.trim() === '') continue;
+            const lines = block.trim().split('\n');
+            const record = { tags: [] };
+            let isContentSection = false;
+            const contentLines = [];
+            for (const line of lines) {
+                if (isContentSection) {
+                    contentLines.push(line);
+                    continue;
+                }
+                if (line.trim() === '---') {
+                    isContentSection = true;
+                    continue;
+                }
+                const parts = line.split(/:/);
+                if (parts.length > 1) {
+                    const key = parts[0].trim();
+                    const value = parts.slice(1).join(':').trim();
+                    switch (key) {
+                        case 'Index': record.index = value; break;
+                        case 'Timestamp': record.timestamp = value; break;
+                        case 'Source': record.source = value; break;
+                        case 'CharCount': record.charCount = value; break;
+                        case 'Tags':
+                            if (value) record.tags = value.split(',').map(t => t.trim()).filter(t => t);
+                            break;
+                    }
+                }
+            }
+            record.content = contentLines.join('\n').trim();
+            records.push(record);
+        }
+        return records;
+    }
+
+    function buildVocabulary(records) {
+        vocabulary.clear();
+        records.forEach(record => {
+            if (record.tags) {
+                record.tags.forEach(tag => vocabulary.add(tag));
+            }
+        });
+    }
+
+    function displayVocabulary() {
+        allTagsContainer.innerHTML = '';
+        [...vocabulary].sort().forEach(tag => {
+            if (tag === HIDDEN_TAG_NAME) return;
+            const tagPill = createTagPill(tag);
+            allTagsContainer.appendChild(tagPill);
+        });
+    }
+
+    function displayCurrentTags() {
+        currentTagsContainer.innerHTML = '';
+        if (pendingTags.size > 0) {
+            [...pendingTags].sort().forEach(tag => {
+                const tagPill = createTagPill(tag, true);
+                currentTagsContainer.appendChild(tagPill);
+            });
+        }
+    }
+
+    function createTagPill(tagName, withRemove = false) {
+        const tagPill = document.createElement('span');
+        tagPill.className = 'tag-pill';
+        tagPill.textContent = tagName;
+        tagPill.dataset.tag = tagName;
+        if (withRemove) {
+            const removeBtn = document.createElement('span');
+            removeBtn.className = 'tag-remove';
+            removeBtn.innerHTML = ' &times;';
+            tagPill.appendChild(removeBtn);
+        }
+        return tagPill;
+    }
+
+    function displayRecord(index) {
+        if (allRecords.length === 0) {
+            mainView.innerHTML = "<h1>Mission Complete</h1><p>All records in this scope have been processed.</p><button onclick='location.reload()'>Start New Mission</button>";
+            return;
+        }
+        if (index < 0 || index >= allRecords.length) {
+            index = Math.max(0, Math.min(index, allRecords.length - 1));
+        }
+        currentIndex = index;
+        const record = allRecords[currentIndex];
+        pendingTags = new Set(record.tags);
+        progressDisplay.textContent = `Memory Node: ${currentIndex + 1} / ${allRecords.length}`;
+        recordIndex.textContent = record.index || 'N/A';
+        recordTimestamp.textContent = record.timestamp || 'N/A';
+        recordCharCount.textContent = record.charCount || 'N/A';
+        contentView.textContent = record.content || '';
+        displayCurrentTags();
+        displayVocabulary();
+    }
+
+    function handleAddTagClick(e) {
+        if (e.target && e.target.classList.contains('tag-pill')) {
+            const tagName = e.target.dataset.tag;
+            if (tagName && !pendingTags.has(tagName)) {
+                pendingTags.add(tagName);
+                displayCurrentTags();
+            }
+        }
+    }
+
+    function handleRemoveTagClick(e) {
+        if (e.target && e.target.classList.contains('tag-remove')) {
+            const tagName = e.target.parentElement.dataset.tag;
+            if (tagName) {
+                pendingTags.delete(tagName);
+                displayCurrentTags();
+            }
+        }
+    }
+
+    async function navigate(direction) {
+        await saveCurrentRecord();
+        const newIndex = currentIndex + direction;
+        if (newIndex >= 0 && newIndex < allRecords.length) {
+            displayRecord(newIndex);
+        } else {
+            alert(direction > 0 ? "You've reached the last record of this mission." : "You're at the first record of this mission.");
+        }
+    }
+
+    function handleAddNewConcept() {
+        const newTag = prompt("Enter new concept name:");
+        if (newTag && newTag.trim() !== '') {
+            const trimmedTag = newTag.trim();
+            if (vocabulary.has(trimmedTag)) {
+                alert(`Concept '${trimmedTag}' already exists.`);
+            } else {
+                vocabulary.add(trimmedTag);
+                pendingTags.add(trimmedTag);
+                displayVocabulary();
+                displayCurrentTags();
+            }
+        }
+    }
+
+    async function handleHideRecord() {
+        if (allRecords.length === 0) return;
+        const recordToHide = allRecords[currentIndex];
+        const confirmation = confirm(`Are you sure you want to hide this record?\n\nIndex: ${recordToHide.index}\nThis action cannot be easily undone.`);
+        if (confirmation) {
+            pendingTags.add(HIDDEN_TAG_NAME);
+            await saveCurrentRecord();
+            allRecords.splice(currentIndex, 1);
+            displayRecord(currentIndex);
+        }
+    }
+
+    async function saveCurrentRecord() {
+        if (currentIndex < 0 || currentIndex >= allRecords.length) return;
+        const currentRecord = allRecords[currentIndex];
+        const originalTags = new Set(currentRecord.tags);
+        if (originalTags.size === pendingTags.size && [...originalTags].every(tag => pendingTags.has(tag))) {
+            return;
+        }
+        console.log(`Solidifying memory... Saving changes to ${currentRecord.index}`);
+        currentRecord.tags = [...pendingTags].sort();
+        try {
+            const year = currentRecord.index.split('-')[1];
+            const fileName = `${year}.txt`;
+
+            const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+            const file = await fileHandle.getFile();
+            const text = await file.text();
+            const yearRecords = parseTotemFile(text);
+
+            const recordToUpdateIndex = yearRecords.findIndex(r => r.index === currentRecord.index);
+            if (recordToUpdateIndex > -1) {
+                yearRecords[recordToUpdateIndex] = currentRecord;
+            } else {
+                yearRecords.push(currentRecord);
+                yearRecords.sort((a,b) => a.index.localeCompare(b.index));
+            }
+            const newFileContent = serializeTotemFile(yearRecords);
+            const writable = await fileHandle.createWritable();
+            await writable.write(newFileContent);
+            await writable.close();
+            console.log("Save successful.");
+        } catch (error) {
+            console.error("Failed to save file:", error);
+            alert("Error: Could not save changes to the file.");
+        }
+    }
+
+    function serializeTotemFile(records) {
+        return records.map((record, i) => {
+            let block = `Index: ${record.index}\n`;
+            block += `Timestamp: ${record.timestamp}\n`;
+            block += `Source: ${record.source}\n`;
+            block += `Tags: ${record.tags ? record.tags.join(', ') : ''}\n`;
+            block += `CharCount: ${record.charCount}\n`;
+            block += `---\n`;
+            block += `${record.content.trim()}`;
+            // Add separator only if it's not the last record
+            if (i < records.length - 1) {
+                block += `\n========================================`;
+            }
+            return block;
+        }).join("\n");
+    }
     
-    // --- Event Listeners & Initial Load ---
+    // --- 5. Event Listeners ---
     selectDirBtn.addEventListener('click', selectDirectory);
     allTagsContainer.addEventListener('click', handleAddTagClick);
     currentTagsContainer.addEventListener('click', handleRemoveTagClick);
@@ -368,6 +426,19 @@ document.addEventListener('DOMContentLoaded', () => {
     prevBtn.addEventListener('click', () => navigate(-1));
     addNewBtn.addEventListener('click', handleAddNewConcept);
     hideBtn.addEventListener('click', handleHideRecord);
+    btnCheckHandle.addEventListener('click', async () => {
+        console.log("--- Manual Handle Check ---");
+        const handle = await getHandle('pasivDir');
+        console.log("Handle in IndexedDB: " + (handle ? "Exists" : "Not Found"));
+        if(handle){
+            const hasPermission = await verifyPermission(handle);
+            console.log("Permission status: " + (hasPermission ? "Granted" : "Not Granted"));
+        }
+    });
+    btnClearLog.addEventListener('click', () => {
+        document.getElementById('debug-log').innerHTML = '';
+    });
 
+    // --- 6. Initial Load ---
     initializeApp();
 });
