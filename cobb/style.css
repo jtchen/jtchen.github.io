@@ -1,4 +1,4 @@
-/* [MODIFIED] Basic styles for full-height layout */
+/* 基本樣式與深色主題 */
 html, body {
     height: 100%;
     margin: 0;
@@ -10,8 +10,8 @@ body {
     background-color: #121212;
     color: #e0e0e0;
     font-size: 16px;
-    display: flex; /* Set body as a flex container */
-    flex-direction: column; /* Arrange children vertically */
+    display: flex;
+    flex-direction: column;
 }
 
 .container {
@@ -19,21 +19,23 @@ body {
     margin: 0 auto;
     width: 100%;
     padding: 1rem;
-    box-sizing: border-box; /* Include padding in width/height calculation */
+    box-sizing: border-box;
 }
 
-/* [NEW] Main container for Flexbox layout */
+/* Main container for Flexbox layout */
 .main-container {
     display: flex;
     flex-direction: column;
     height: 100%;
 }
 
-/* [NEW] Main content area that grows and scrolls */
+/* Main content area that grows and scrolls */
 #main-content {
     flex-grow: 1; /* Allow this element to grow and fill available space */
     overflow-y: auto; /* Add a scrollbar only to this element */
     padding: 0 1rem;
+    /* [THE FIX] This allows the flex item to shrink below its content size, enabling the overflow. */
+    min-height: 0;
 }
 
 #startup-view {
@@ -57,9 +59,9 @@ body {
     background-color: #444;
 }
 
-/* [MODIFIED] Header and Footer are now fixed height */
+/* Header and Footer are now fixed height */
 #top-bar, #action-bar {
-    flex-shrink: 0; /* Prevent header and footer from shrinking */
+    flex-shrink: 0;
     padding: 1rem;
     max-width: 800px;
     margin: 0 auto;
@@ -107,7 +109,7 @@ body {
 }
 #all-tags-container { max-height: 20vh; overflow-y: auto; }
 
-/* 標籤藥丸 */
+/* 標籤藥丸 (Tag Pill) 樣式 */
 .tag-pill {
     display: inline-block;
     background-color: #333;
