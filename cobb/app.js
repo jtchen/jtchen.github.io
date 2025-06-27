@@ -56,8 +56,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const progressDisplay = document.getElementById('progress-display');
     const recordIndex = document.getElementById('record-index');
-    const recordTimestamp = document.getElementById('record-timestamp');
-    const recordCharCount = document.getElementById('record-char-count');
+    //const recordTimestamp = document.getElementById('record-timestamp');
+    //const recordCharCount = document.getElementById('record-char-count');
     const contentView = document.getElementById('content-view');
     
     const currentTagsContainer = document.getElementById('current-tags-container');
@@ -248,8 +248,8 @@ document.addEventListener('DOMContentLoaded', () => {
         pendingTags = new Set(record.tags);
         progressDisplay.textContent = `Memory Node: ${currentIndex + 1} / ${allRecords.length}`;
         recordIndex.textContent = record.index || 'N/A';
-        recordTimestamp.textContent = record.timestamp || 'N/A';
-        recordCharCount.textContent = record.charCount || 'N/A';
+        //recordTimestamp.textContent = record.timestamp || 'N/A';
+        //recordCharCount.textContent = record.charCount || 'N/A';
         contentView.textContent = record.content || '';
         displayCurrentTags();
         displayVocabulary();
