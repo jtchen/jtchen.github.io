@@ -1,119 +1,65 @@
-// [ENHANCED DEBUG VERSION] app.js
+// @author Jian-Ting Chen (with assistance from Google Gemini)
+// Copyright (C) 2025 Leyihuo Co., Ltd. All rights reserved.
+//
+// Final production-ready code for the Cobb PWA client-side application.
+// Handles interactive tagging with persistent directory access.
 
-// --- 0. On-Screen Debugger & Service Worker ---
-const debugLogEl = document.getElementById('debug-log');
-function logToScreen(message, type = 'log') {
-    if (debugLogEl) {
-        const p = document.createElement('p');
-        const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
-        p.textContent = `[${timestamp}] ${message}`;
-        if (type === 'error') p.style.color = '#ff8a80';
-        if (type === 'warn') p.style.color = '#ffd180';
-        debugLogEl.appendChild(p);
-        debugLogEl.scrollTop = debugLogEl.scrollHeight;
-    }
-}
-const originalLog = console.log;
-const originalWarn = console.warn;
-const originalError = console.error;
-console.log = function() { logToScreen(Array.from(arguments).join(' ')); originalLog.apply(console, arguments); };
-console.warn = function() { logToScreen(Array.from(arguments).join(' '), 'warn'); originalWarn.apply(console, arguments); };
-console.error = function() { logToScreen(Array.from(arguments).join(' '), 'error'); originalError.apply(console, arguments); };
-
+// --- 0. Service Worker Registration ---
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js').then(registration => {
-            console.log('ServiceWorker registration successful');
-        }, err => {
+            // ServiceWorker registration is silent in production
+        }).catch(err => {
             console.error('ServiceWorker registration failed: ', err);
         });
     });
 }
 
-// --- IndexedDB Helper Functions with Enhanced Logging ---
+// --- IndexedDB Helper Functions ---
 function getDb() {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open('CobbDB', 1);
-        request.onerror = event => {
-            console.error('Database error:', event.target.error);
-            reject('Database error: ' + (event.target.error ? event.target.error.message : 'Unknown error'));
-        };
+        request.onerror = event => reject('Database error: ' + (event.target.error ? event.target.error.message : 'Unknown error'));
         request.onsuccess = event => resolve(event.target.result);
         request.onupgradeneeded = event => {
-            console.log('Database upgrade needed.');
             const db = event.target.result;
             if (!db.objectStoreNames.contains('handles')) {
                 db.createObjectStore('handles', { keyPath: 'id' });
-                console.log('Object store "handles" created.');
             }
         };
     });
 }
 async function setHandle(id, handle) {
-    try {
-        const db = await getDb();
-        const tx = db.transaction('handles', 'readwrite');
-        const store = tx.objectStore('handles');
-        console.log(`Attempting to save handle with id: ${id}`);
-        store.put({ id, handle });
-        return new Promise((resolve, reject) => {
-            tx.oncomplete = () => {
-                console.log(`Handle with id '${id}' saved successfully.`);
-                resolve();
-            };
-            tx.onerror = event => {
-                console.error(`Transaction error while saving handle '${id}':`, event.target.error);
-                reject('Transaction error: ' + event.target.error);
-            };
-        });
-    } catch (e) {
-        console.error("Error in setHandle:", e);
-    }
+    const db = await getDb();
+    const tx = db.transaction('handles', 'readwrite');
+    const store = tx.objectStore('handles');
+    store.put({ id, handle });
+    return new Promise((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = event => reject('Transaction error: ' + event.target.error);
+    });
 }
 async function getHandle(id) {
-    try {
-        const db = await getDb();
-        const tx = db.transaction('handles', 'readonly');
-        const store = tx.objectStore('handles');
-        const request = store.get(id);
-        console.log(`Attempting to get handle with id: ${id}`);
-        return new Promise((resolve) => {
-            request.onsuccess = () => {
-                if (request.result) {
-                    console.log(`Handle found in IndexedDB for id '${id}'.`);
-                    resolve(request.result.handle);
-                } else {
-                    console.warn(`No handle found in IndexedDB for id '${id}'.`);
-                    resolve(null);
-                }
-            };
-            request.onerror = (event) => {
-                console.error(`Error getting handle '${id}':`, event.target.error);
-                resolve(null);
-            };
-        });
-    } catch (e) {
-        console.error("Error in getHandle:", e);
-        return null;
-    }
+    const db = await getDb();
+    const tx = db.transaction('handles', 'readonly');
+    const store = tx.objectStore('handles');
+    const request = store.get(id);
+    return new Promise((resolve) => {
+        request.onsuccess = () => resolve(request.result ? request.result.handle : null);
+        request.onerror = () => resolve(null);
+    });
 }
 async function verifyPermission(handle) {
     if (!handle) return false;
     const options = { mode: 'readwrite' };
-    console.log("Querying for permission...");
     if (await handle.queryPermission(options) === 'granted') {
-        console.log("Permission status is 'granted'.");
         return true;
     }
-    console.warn("Permission status is NOT 'granted'.");
     return false;
 }
 
-// ... The rest of the app.js is IDENTICAL to the previous version. ...
-// You can copy from the 'document.addEventListener...' line downwards from the last response.
-// For your convenience, I will paste it again here.
-
 document.addEventListener('DOMContentLoaded', () => {
+    // --- 1. Global State & Constants ---
     let dirHandle;
     let allRecords = [];
     let vocabulary = new Set();
@@ -121,6 +67,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let pendingTags = new Set();
     const RECORD_SEPARATOR_PATTERN = /={40,}/;
     const HIDDEN_TAG_NAME = "隱藏貼文";
+
+    // --- 2. DOM Element References ---
     const startupView = document.getElementById('startup-view');
     const mainView = document.getElementById('main-view');
     const selectDirBtn = document.getElementById('btn-select-dir');
@@ -135,53 +83,89 @@ document.addEventListener('DOMContentLoaded', () => {
     const addNewBtn = document.getElementById('btn-add-new');
     const saveNextBtn = document.getElementById('btn-save-next');
     const hideBtn = document.getElementById('btn-hide');
-    const btnCheckHandle = document.getElementById('btn-check-handle');
-    const btnClearLog = document.getElementById('btn-clear-log');
+
+    // --- 3. Core Functions ---
 
     async function initializeApp() {
-        console.log("Initializing App...");
         const savedHandle = await getHandle('pasivDir');
-        if (savedHandle && await verifyPermission(savedHandle)) {
-            console.log("Restored directory access from saved handle.");
-            dirHandle = savedHandle;
-            await promptAndLoad();
+        if (savedHandle) {
+            if (await verifyPermission(savedHandle)) {
+                dirHandle = savedHandle;
+                await promptAndLoad();
+            } else {
+                // [NEW] Handle exists but permission is lost. Offer re-authorization.
+                dirHandle = savedHandle;
+                setupForReauthorization();
+            }
         } else {
-            console.log("Could not restore access automatically. Showing startup view.");
-            startupView.style.display = 'block';
-            mainView.style.display = 'none';
+            // No handle saved, setup for initial selection.
+            setupForInitialSelection();
         }
     }
 
-    async function selectDirectory() {
+    // [NEW] Sets up the UI for the very first time directory selection.
+    function setupForInitialSelection() {
+        startupView.style.display = 'block';
+        mainView.style.display = 'none';
+        selectDirBtn.textContent = 'Select Directory';
+        // Ensure the correct event listener is attached.
+        selectDirBtn.replaceWith(selectDirBtn.cloneNode(true));
+        document.getElementById('btn-select-dir').addEventListener('click', selectAndRequestDirectory);
+    }
+    
+    // [NEW] Sets up the UI to ask for re-authorization of a known directory.
+    function setupForReauthorization() {
+        startupView.style.display = 'block';
+        mainView.style.display = 'none';
+        selectDirBtn.textContent = `Re-authorize 'pasiv' Directory`;
+        // Attach a different event listener for re-authorization.
+        selectDirBtn.replaceWith(selectDirBtn.cloneNode(true));
+        document.getElementById('btn-select-dir').addEventListener('click', reauthorizeDirectory);
+    }
+    
+    // [NEW] Logic for initial directory picking.
+    async function selectAndRequestDirectory() {
         try {
-            console.log("Requesting directory picker...");
             const handle = await window.showDirectoryPicker();
-            if (!handle) {
-                console.warn("Directory picker was dismissed.");
-                return;
-            }
-            console.log("Directory selected. Requesting permission...");
+            if (!handle) return;
+            
             if (await handle.requestPermission({ mode: 'readwrite' }) === 'granted') {
-                console.log("Permission granted. Saving handle to IndexedDB...");
                 await setHandle('pasivDir', handle);
                 dirHandle = handle;
                 await promptAndLoad();
             } else {
-                console.error("Permission to access directory was denied.");
                 alert("Permission to access directory was denied.");
             }
         } catch (error) {
-            console.error('Directory selection cancelled or failed:', error);
+             // User cancelling the picker is a common case, not an error.
+            console.log('Directory selection cancelled or failed:', error.name);
         }
     }
-    
-    // ... (All other functions from promptAndLoad downwards are identical)
+
+    // [NEW] Logic for re-authorizing an existing handle.
+    async function reauthorizeDirectory() {
+        if (!dirHandle) {
+            // This case should not happen, but as a fallback.
+            setupForInitialSelection();
+            return;
+        }
+        try {
+            if (await dirHandle.requestPermission({ mode: 'readwrite' }) === 'granted') {
+                await promptAndLoad();
+            } else {
+                alert("Permission to access directory was denied.");
+            }
+        } catch (error) {
+            console.error('Re-authorization failed:', error);
+        }
+    }
+
     async function promptAndLoad() {
         const scope = prompt("Enter mission scope (e.g., 2022 or 2022-12). Leave empty to load all.");
         if (scope === null) {
             alert("Mission cancelled.");
             if (mainView.style.display === 'none') {
-                startupView.style.display = 'block';
+                setupForReauthorization(); // Go back to re-auth state
             }
             return;
         }
@@ -196,15 +180,17 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             alert(`No non-hidden records found for scope '${scope}'.`);
             mainView.style.display = 'none';
-            startupView.style.display = 'block';
+            setupForReauthorization();
         }
     }
+    
+    // ... (All other functions from filterRecordsByScope downwards are identical to previous versions)
     function filterRecordsByScope(records, scope) {
-         return records.filter(record => {
-            const isHidden = record.tags.includes(HIDDEN_TAG_NAME);
-            if (isHidden) return false;
-            if (scope.trim() === '') return true;
-            return record.timestamp.startsWith(scope);
+        return records.filter(record => {
+           const isHidden = record.tags.includes(HIDDEN_TAG_NAME);
+           if (isHidden) return false;
+           if (scope.trim() === '') return true;
+           return record.timestamp.startsWith(scope);
        });
    }
    async function loadAllFiles(handle) {
@@ -355,7 +341,7 @@ document.addEventListener('DOMContentLoaded', () => {
                vocabulary.add(trimmedTag);
                pendingTags.add(trimmedTag);
                displayVocabulary();
-                displayCurrentTags();
+               displayCurrentTags();
            }
        }
    }
@@ -377,12 +363,12 @@ document.addEventListener('DOMContentLoaded', () => {
        if (originalTags.size === pendingTags.size && [...originalTags].every(tag => pendingTags.has(tag))) {
            return;
        }
-       console.log(`Solidifying memory... Saving changes to ${currentRecord.index}`);
        currentRecord.tags = [...pendingTags].sort();
        try {
            const year = currentRecord.index.split('-')[1];
            const fileName = `${year}.txt`;
-           const allYearRecordsText = await dirHandle.getFileHandle(fileName).then(fh => fh.getFile()).then(f => f.text()).catch(() => "");
+           const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+           const allYearRecordsText = await fileHandle.getFile().then(f => f.text()).catch(() => "");
            const allYearRecords = parseTotemFile(allYearRecordsText);
            const recordToUpdateIndex = allYearRecords.findIndex(r => r.index === currentRecord.index);
            if (recordToUpdateIndex > -1) {
@@ -391,12 +377,10 @@ document.addEventListener('DOMContentLoaded', () => {
                allYearRecords.push(currentRecord);
                allYearRecords.sort((a,b) => a.index.localeCompare(b.index));
            }
-           const newFileContent = serializeTotemFile(yearRecords);
-           const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+           const newFileContent = serializeTotemFile(allYearRecords);
            const writable = await fileHandle.createWritable();
            await writable.write(newFileContent);
            await writable.close();
-           console.log("Save successful.");
        } catch (error) {
            console.error("Failed to save file:", error);
            alert("Error: Could not save changes to the file.");
@@ -418,26 +402,15 @@ document.addEventListener('DOMContentLoaded', () => {
        }).join("\n");
    }
     
-    // --- 5. Event Listeners & Initial Load ---
-    selectDirBtn.addEventListener('click', selectDirectory);
+    // --- 5. Event Listeners ---
+    // Note: The main listener is now set dynamically in initializeApp
     allTagsContainer.addEventListener('click', handleAddTagClick);
     currentTagsContainer.addEventListener('click', handleRemoveTagClick);
     saveNextBtn.addEventListener('click', () => navigate(1));
     prevBtn.addEventListener('click', () => navigate(-1));
     addNewBtn.addEventListener('click', handleAddNewConcept);
     hideBtn.addEventListener('click', handleHideRecord);
-    btnCheckHandle.addEventListener('click', async () => {
-        console.log("--- Manual Handle Check ---");
-        const handle = await getHandle('pasivDir');
-        console.log("Handle in IndexedDB: " + (handle ? "Exists" : "Not Found"));
-        if(handle){
-            const hasPermission = await verifyPermission(handle);
-            console.log("Permission status: " + (hasPermission ? "Granted" : "Not Granted"));
-        }
-    });
-    btnClearLog.addEventListener('click', () => {
-        document.getElementById('debug-log').innerHTML = '';
-    });
 
+    // --- 6. Initial Load ---
     initializeApp();
 });
