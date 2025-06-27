@@ -9,46 +9,44 @@
 </head>
 <body>
 
-    <div id="startup-view" class="container" style="display: none;">
+    <div id="startup-view" class="container">
         <h1>PROJECT INCEPTION</h1>
         <p>Please select your 'pasiv' directory to begin the extraction session.</p>
         <button id="btn-select-dir">Select Directory</button>
     </div>
 
-    <div id="main-view" class="container" style="display: none;">
+    <div id="main-view" class="main-container" style="display: none;">
         <header id="top-bar">
             <h1 class="title">Cobb PWA</h1>
             <div id="progress-display">Memory Node: 0 / 0</div>
             <button id="btn-hide">Hide</button>
         </header>
 
-        <section id="metadata-view">
-            <div><strong>Index:</strong> <span id="record-index"></span></div>
-            <div><strong>Timestamp:</strong> <span id="record-timestamp"></span></div>
-            <div><strong>CharCount:</strong> <span id="record-char-count"></span></div>
-        </section>
-        
-        <hr>
+        <main id="main-content">
+            <section id="metadata-view">
+                <div><strong>Index:</strong> <span id="record-index"></span></div>
+                </section>
+            
+            <hr>
 
-        <section id="content-view"></section>
+            <section id="content-view"></section>
 
-        <hr>
+            <hr>
 
-        <section id="current-concepts-view">
-            <label>Extracted Concepts:</label>
-            <div id="current-tags-container">
-                </div>
-        </section>
+            <section id="current-concepts-view">
+                <label>Extracted Concepts:</label>
+                <div id="current-tags-container"></div>
+            </section>
 
-        <section id="vocabulary-view">
-            <label>Concept Vocabulary:</label>
-            <div id="all-tags-container">
-                </div>
-        </section>
+            <section id="vocabulary-view">
+                <label>Concept Vocabulary:</label>
+                <div id="all-tags-container"></div>
+            </section>
+        </main>
 
         <footer id="action-bar">
             <button id="btn-prev">Previous</button>
-            <button id="btn-add-new">Add New Concept</button>
+            <button id="btn-add-new">Add Concept</button>
             <button id="btn-save-next">Next</button>
         </footer>
     </div>
