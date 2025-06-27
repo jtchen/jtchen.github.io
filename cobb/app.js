@@ -1,6 +1,45 @@
-// Wait for the entire HTML document to be loaded before running the script.
-document.addEventListener('DOMContentLoaded', () => {
+// [FINAL VERSION] app.js with Service Worker and IndexedDB for persistence
 
+// --- 0. Service Worker Registration ---
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').then(registration => {
+            console.log('ServiceWorker registration successful');
+        }, err => {
+            console.log('ServiceWorker registration failed: ', err);
+        });
+    });
+}
+
+// --- IndexedDB Helper Functions ---
+function getDb() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open('CobbDB', 1);
+        request.onerror = event => reject('Database error: ' + event.target.errorCode);
+        request.onsuccess = event => resolve(event.target.result);
+        request.onupgradeneeded = event => {
+            const db = event.target.result;
+            db.createObjectStore('handles', { keyPath: 'id' });
+        };
+    });
+}
+async function setHandle(id, handle) {
+    const db = await getDb();
+    const tx = db.transaction('handles', 'readwrite');
+    const store = tx.objectStore('handles');
+    await store.put({ id, handle });
+    return tx.complete;
+}
+async function getHandle(id) {
+    const db = await getDb();
+    const tx = db.transaction('handles', 'readonly');
+    const store = tx.objectStore('handles');
+    const request = await store.get(id);
+    return request ? request.handle : null;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    // ... (The rest of your app.js code remains the same as the last version)
     // --- 1. Global State & Constants ---
     let dirHandle;
     let allRecords = [];
@@ -27,47 +66,79 @@ document.addEventListener('DOMContentLoaded', () => {
     const prevBtn = document.getElementById('btn-prev');
     const addNewBtn = document.getElementById('btn-add-new');
     const saveNextBtn = document.getElementById('btn-save-next');
-    const hideBtn = document.getElementById('btn-hide'); // [NEW] Get the hide button
+    const hideBtn = document.getElementById('btn-hide');
 
     // --- 3. Core Functions ---
+
+    /**
+     * [MODIFIED] Tries to load the saved directory handle from IndexedDB on startup.
+     */
+    async function initializeApp() {
+        const savedHandle = await getHandle('pasivDir');
+        if (savedHandle) {
+            // Verify permission. This will pop-up a small confirmation if needed.
+            if (await savedHandle.queryPermission({ mode: 'readwrite' }) === 'granted') {
+                console.log("Restored directory access from saved handle.");
+                dirHandle = savedHandle;
+                // Directly ask for mission scope, bypassing the select directory button
+                promptAndLoad(); 
+                return;
+            }
+        }
+        // If no saved handle or permission denied, show the startup view
+        startupView.style.display = 'block';
+    }
 
     async function selectDirectory() {
         try {
             dirHandle = await window.showDirectoryPicker();
             if (!dirHandle) return;
-
-            const scope = prompt("Enter mission scope (e.g., 2022 or 2022-12). Leave empty to load all.");
-            if (scope === null) {
-                alert("Mission cancelled.");
-                return;
-            }
-
-            const allLoadedRecords = await loadAllFiles(dirHandle);
-            buildVocabulary(allLoadedRecords);
-
-            // Filter records for the mission based on scope
-            const missionRecords = allLoadedRecords.filter(record => {
-                const isHidden = record.tags.includes(HIDDEN_TAG_NAME);
-                if (isHidden) return false; // Exclude hidden records by default
-                if (scope.trim() === '') return true; // Load all if scope is empty
-                return record.timestamp.startsWith(scope);
-            });
             
-            allRecords = missionRecords; // Set the global 'allRecords' to the mission-specific list
-
-            if (allRecords.length > 0) {
-                startupView.style.display = 'none';
-                mainView.style.display = 'block';
-                displayRecord(0);
-            } else {
-                alert(`No non-hidden records found for scope '${scope}'.`);
-            }
+            // Save the handle to IndexedDB for future sessions
+            await setHandle('pasivDir', dirHandle);
+            
+            await promptAndLoad();
         } catch (error) {
-            console.error('Error during setup:', error);
-            alert('An error occurred. Please ensure your browser supports the File System Access API.');
+            console.error('Error selecting directory:', error);
+        }
+    }
+
+    async function promptAndLoad() {
+        const scope = prompt("Enter mission scope (e.g., 2022 or 2022-12). Leave empty to load all.");
+        if (scope === null) {
+            alert("Mission cancelled.");
+            // If we are in the startup view, stay there. If not, do nothing.
+            if(!dirHandle) startupView.style.display = 'block';
+            return;
+        }
+
+        startupView.style.display = 'none';
+        mainView.style.display = 'block';
+
+        const allLoadedRecords = await loadAllFiles(dirHandle);
+        buildVocabulary(allLoadedRecords);
+
+        const missionRecords = filterRecordsByScope(allLoadedRecords, scope);
+        allRecords = missionRecords;
+
+        if (allRecords.length > 0) {
+            displayRecord(0);
+        } else {
+            alert(`No non-hidden records found for scope '${scope}'.`);
+            mainView.style.display = 'none';
+            startupView.style.display = 'block';
         }
     }
     
+    function filterRecordsByScope(records, scope) {
+         return records.filter(record => {
+            const isHidden = record.tags.includes(HIDDEN_TAG_NAME);
+            if (isHidden) return false;
+            if (scope.trim() === '') return true;
+            return record.timestamp.startsWith(scope);
+        });
+    }
+
     async function loadAllFiles(handle) {
         let allFileRecords = [];
         for await (const entry of handle.values()) {
@@ -84,8 +155,10 @@ document.addEventListener('DOMContentLoaded', () => {
         allFileRecords.sort((a, b) => a.index.localeCompare(b.index));
         return allFileRecords;
     }
-
-    // ... (parseTotemFile, buildVocabulary, displayVocabulary, etc. remain unchanged)
+    
+    // ... (The rest of the functions: parseTotemFile, buildVocabulary, displayVocabulary, 
+    //      displayCurrentTags, createTagPill, displayRecord, and all event handlers
+    //      remain exactly the same as the previous version)
     function parseTotemFile(fileContent) {
         const records = [];
         const recordBlocks = fileContent.split(RECORD_SEPARATOR_PATTERN);
@@ -164,14 +237,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     function displayRecord(index) {
         if (allRecords.length === 0) {
-            mainView.innerHTML = "<h1>Mission Complete</h1><p>All records in this scope have been processed.</p>";
+            mainView.innerHTML = "<h1>Mission Complete</h1><p>All records in this scope have been processed.</p><button onclick='location.reload()'>Start New Mission</button>";
             return;
         }
         if (index < 0 || index >= allRecords.length) {
-            // This can happen if the last item is hidden. Adjust index.
             index = Math.max(0, Math.min(index, allRecords.length - 1));
         }
-
         currentIndex = index;
         const record = allRecords[currentIndex];
         pendingTags = new Set(record.tags);
@@ -183,8 +254,6 @@ document.addEventListener('DOMContentLoaded', () => {
         displayCurrentTags();
         displayVocabulary();
     }
-
-    // --- 4. Event Handlers ---
     function handleAddTagClick(e) {
         if (e.target && e.target.classList.contains('tag-pill')) {
             const tagName = e.target.dataset.tag;
@@ -203,7 +272,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     }
-    
     async function navigate(direction) {
         await saveCurrentRecord();
         const newIndex = currentIndex + direction;
@@ -213,7 +281,6 @@ document.addEventListener('DOMContentLoaded', () => {
             alert(direction > 0 ? "You've reached the last record of this mission." : "You're at the first record of this mission.");
         }
     }
-    
     function handleAddNewConcept() {
         const newTag = prompt("Enter new concept name:");
         if (newTag && newTag.trim() !== '') {
@@ -228,47 +295,31 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     }
-    
-    /**
-     * [NEW] Handles the logic for the hide button.
-     */
     async function handleHideRecord() {
         if (allRecords.length === 0) return;
-
         const recordToHide = allRecords[currentIndex];
         const confirmation = confirm(`Are you sure you want to hide this record?\n\nIndex: ${recordToHide.index}\nThis action cannot be easily undone.`);
-
         if (confirmation) {
-            // Add the hidden tag, then save immediately.
             pendingTags.add(HIDDEN_TAG_NAME);
             await saveCurrentRecord();
-
-            // Remove from the current mission's list in memory.
             allRecords.splice(currentIndex, 1);
-            
-            // Display the next record.
             displayRecord(currentIndex);
         }
     }
-
     async function saveCurrentRecord() {
         if (currentIndex < 0 || currentIndex >= allRecords.length) return;
         const currentRecord = allRecords[currentIndex];
         const originalTags = new Set(currentRecord.tags);
-        
         if (originalTags.size === pendingTags.size && [...originalTags].every(tag => pendingTags.has(tag))) {
             return;
         }
-        
         console.log(`Solidifying memory... Saving changes to ${currentRecord.index}`);
         currentRecord.tags = [...pendingTags].sort();
         try {
             const year = currentRecord.index.split('-')[1];
             const fileName = `${year}.txt`;
-
-            // Load all records for that year to perform the update.
-            const allYearRecords = await loadAllFiles(dirHandle).then(recs => recs.filter(r => r.index.split('-')[1] === year));
-            
+            const allYearRecordsText = await dirHandle.getFileHandle(fileName).then(fh => fh.getFile()).then(f => f.text()).catch(() => "");
+            const allYearRecords = parseTotemFile(allYearRecordsText);
             const recordToUpdateIndex = allYearRecords.findIndex(r => r.index === currentRecord.index);
             if (recordToUpdateIndex > -1) {
                 allYearRecords[recordToUpdateIndex] = currentRecord;
@@ -287,13 +338,11 @@ document.addEventListener('DOMContentLoaded', () => {
             alert("Error: Could not save changes to the file.");
         }
     }
-    
     function serializeTotemFile(records) {
         return records.map(record => {
             let block = `Index: ${record.index}\n`;
             block += `Timestamp: ${record.timestamp}\n`;
             block += `Source: ${record.source}\n`;
-            // Ensure Tags line is always present for easier parsing
             block += `Tags: ${record.tags ? record.tags.join(', ') : ''}\n`;
             block += `CharCount: ${record.charCount}\n`;
             block += `---\n`;
@@ -309,6 +358,8 @@ document.addEventListener('DOMContentLoaded', () => {
     saveNextBtn.addEventListener('click', () => navigate(1));
     prevBtn.addEventListener('click', () => navigate(-1));
     addNewBtn.addEventListener('click', handleAddNewConcept);
-    hideBtn.addEventListener('click', handleHideRecord); // [NEW] Wire up the hide button
+    hideBtn.addEventListener('click', handleHideRecord);
 
+    // --- 6. Initial Load ---
+    initializeApp();
 });
