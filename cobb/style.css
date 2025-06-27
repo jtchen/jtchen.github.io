@@ -1,25 +1,41 @@
-/* 基本樣式與深色主題 */
+/* [MODIFIED] Basic styles for full-height layout */
+html, body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden; /* Prevent body from scrolling */
+}
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     background-color: #121212;
     color: #e0e0e0;
-    margin: 0;
-    padding: 1rem;
     font-size: 16px;
+    display: flex; /* Set body as a flex container */
+    flex-direction: column; /* Arrange children vertically */
 }
 
 .container {
     max-width: 800px;
     margin: 0 auto;
+    width: 100%;
+    padding: 1rem;
+    box-sizing: border-box; /* Include padding in width/height calculation */
 }
 
-hr {
-    border: none;
-    border-top: 1px solid #444;
-    margin: 1rem 0;
+/* [NEW] Main container for Flexbox layout */
+.main-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
 }
 
-/* Startup View styles */
+/* [NEW] Main content area that grows and scrolls */
+#main-content {
+    flex-grow: 1; /* Allow this element to grow and fill available space */
+    overflow-y: auto; /* Add a scrollbar only to this element */
+    padding: 0 1rem;
+}
+
 #startup-view {
     text-align: center;
     padding-top: 20vh;
@@ -41,29 +57,25 @@ hr {
     background-color: #444;
 }
 
+/* [MODIFIED] Header and Footer are now fixed height */
+#top-bar, #action-bar {
+    flex-shrink: 0; /* Prevent header and footer from shrinking */
+    padding: 1rem;
+    max-width: 800px;
+    margin: 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+}
 
-/* [MODIFIED] 頂部狀態列 */
 #top-bar {
     display: flex;
     justify-content: space-between;
     align-items: center;
     color: #bbb;
-    margin-bottom: 1rem;
-    gap: 1rem; /* Add space between items */
+    border-bottom: 1px solid #333;
 }
-
-#top-bar .title {
-    font-size: 1.2rem;
-    margin: 0;
-    flex-shrink: 0; /* Prevent title from shrinking */
-}
-
-#progress-display {
-    text-align: center;
-    flex-grow: 1; /* Allow progress to take up space */
-}
-
-/* [NEW] Hide button style */
+#top-bar .title { font-size: 1.2rem; margin: 0; flex-shrink: 0; }
+#progress-display { text-align: center; flex-grow: 1; }
 #btn-hide {
     background-color: transparent;
     border: 1px solid #666;
@@ -73,47 +85,29 @@ hr {
     cursor: pointer;
     font-size: 0.9rem;
 }
-#btn-hide:hover {
-    background-color: #b71c1c; /* A subtle red for destructive action */
-    color: #fff;
-    border-color: #b71c1c;
-}
-
+#btn-hide:hover { background-color: #b71c1c; color: #fff; border-color: #b71c1c; }
 
 /* 元數據與內容 */
-#metadata-view, #content-view {
-    line-height: 1.6;
-}
+#metadata-view, #content-view { line-height: 1.6; }
 #content-view {
     white-space: pre-wrap;
-    max-height: 30vh;
-    overflow-y: auto;
     background-color: #1e1e1e;
     padding: 1rem;
     border-radius: 5px;
 }
 
 /* 標籤區塊 */
-#current-concepts-view, #vocabulary-view {
-    margin: 1rem 0;
-}
-#current-concepts-view label, #vocabulary-view label {
-    display: block;
-    color: #bbb;
-    margin-bottom: 0.5rem;
-}
+#current-concepts-view, #vocabulary-view { margin: 1rem 0; }
+#current-concepts-view label, #vocabulary-view label { display: block; color: #bbb; margin-bottom: 0.5rem; }
 #current-tags-container, #all-tags-container {
     padding: 0.5rem;
     border: 1px dashed #333;
     border-radius: 5px;
     min-height: 2.5rem;
 }
-#all-tags-container {
-    max-height: 25vh;
-    overflow-y: auto;
-}
+#all-tags-container { max-height: 20vh; overflow-y: auto; }
 
-/* 標籤藥丸 (Tag Pill) 樣式 */
+/* 標籤藥丸 */
 .tag-pill {
     display: inline-block;
     background-color: #333;
@@ -125,24 +119,16 @@ hr {
     transition: background-color 0.2s;
     user-select: none;
 }
-#vocabulary-view .tag-pill:hover {
-    background-color: #555;
-    color: #fff;
-}
-.tag-remove {
-    margin-left: 0.5rem;
-    font-weight: bold;
-    color: #888;
-}
-.tag-remove:hover {
-    color: #fff;
-}
+#vocabulary-view .tag-pill:hover { background-color: #555; color: #fff; }
+.tag-remove { margin-left: 0.5rem; font-weight: bold; color: #888; }
+.tag-remove:hover { color: #fff; }
 
 /* 底部操作按鈕 */
 #action-bar {
     display: flex;
     justify-content: space-between;
-    margin-top: 1.5rem;
+    border-top: 1px solid #333;
+    padding-top: 1rem;
 }
 #action-bar button {
     font-size: 1rem;
@@ -156,15 +142,6 @@ hr {
     margin: 0 0.5rem;
     font-weight: normal;
 }
-#action-bar button:hover {
-    background-color: #383838;
-    border-color: #777;
-}
-#btn-save-next {
-    background-color: #444;
-    font-weight: normal;
-    border-color: #666;
-}
-#btn-save-next:hover {
-    background-color: #555;
-}
+#action-bar button:hover { background-color: #383838; border-color: #777; }
+#btn-save-next { background-color: #444; border-color: #666; }
+#btn-save-next:hover { background-color: #555; }
