@@ -53,7 +53,7 @@ async function verifyPermission(handle) {
     if (!handle) return false;
     const options = { mode: 'readwrite' };
     if (await handle.queryPermission(options) === 'granted') {
-        return true;
+      return true;
     }
     return false;
 }
@@ -70,7 +70,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 2. DOM Element References ---
     const startupView = document.getElementById('startup-view');
-    const mainView = document.getElementById('main-view');
+    // [FIXED] Changed 'main-view' to 'app-wrapper' to match the updated HTML structure.
+    const mainView = document.getElementById('app-wrapper'); 
     const selectDirBtn = document.getElementById('btn-select-dir');
     const progressDisplay = document.getElementById('progress-display');
     const recordIndex = document.getElementById('record-index');
@@ -88,42 +89,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function initializeApp() {
         const savedHandle = await getHandle('pasivDir');
-        if (savedHandle) {
-            if (await verifyPermission(savedHandle)) {
-                dirHandle = savedHandle;
-                await promptAndLoad();
-            } else {
-                // [NEW] Handle exists but permission is lost. Offer re-authorization.
+        if (savedHandle && await verifyPermission(savedHandle)) {
+            dirHandle = savedHandle;
+            await promptAndLoad();
+        } else {
+            if (savedHandle) {
                 dirHandle = savedHandle;
                 setupForReauthorization();
+            } else {
+                setupForInitialSelection();
             }
-        } else {
-            // No handle saved, setup for initial selection.
-            setupForInitialSelection();
         }
     }
 
-    // [NEW] Sets up the UI for the very first time directory selection.
     function setupForInitialSelection() {
         startupView.style.display = 'block';
         mainView.style.display = 'none';
         selectDirBtn.textContent = 'Select Directory';
-        // Ensure the correct event listener is attached.
-        selectDirBtn.replaceWith(selectDirBtn.cloneNode(true));
-        document.getElementById('btn-select-dir').addEventListener('click', selectAndRequestDirectory);
+        selectDirBtn.onclick = selectAndRequestDirectory;
     }
     
-    // [NEW] Sets up the UI to ask for re-authorization of a known directory.
     function setupForReauthorization() {
         startupView.style.display = 'block';
         mainView.style.display = 'none';
         selectDirBtn.textContent = `Re-authorize 'pasiv' Directory`;
-        // Attach a different event listener for re-authorization.
-        selectDirBtn.replaceWith(selectDirBtn.cloneNode(true));
-        document.getElementById('btn-select-dir').addEventListener('click', reauthorizeDirectory);
+        selectDirBtn.onclick = reauthorizeDirectory;
     }
     
-    // [NEW] Logic for initial directory picking.
     async function selectAndRequestDirectory() {
         try {
             const handle = await window.showDirectoryPicker();
@@ -137,15 +129,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert("Permission to access directory was denied.");
             }
         } catch (error) {
-             // User cancelling the picker is a common case, not an error.
             console.log('Directory selection cancelled or failed:', error.name);
         }
     }
 
-    // [NEW] Logic for re-authorizing an existing handle.
     async function reauthorizeDirectory() {
         if (!dirHandle) {
-            // This case should not happen, but as a fallback.
             setupForInitialSelection();
             return;
         }
@@ -165,12 +154,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (scope === null) {
             alert("Mission cancelled.");
             if (mainView.style.display === 'none') {
-                setupForReauthorization(); // Go back to re-auth state
+                if (dirHandle) setupForReauthorization();
+                else setupForInitialSelection();
             }
             return;
         }
         startupView.style.display = 'none';
-        mainView.style.display = 'block';
+        mainView.style.display = 'flex'; // Use flex to enable the new layout
         const allLoadedRecords = await loadAllFiles(dirHandle);
         buildVocabulary(allLoadedRecords);
         const missionRecords = filterRecordsByScope(allLoadedRecords, scope);
@@ -180,11 +170,11 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             alert(`No non-hidden records found for scope '${scope}'.`);
             mainView.style.display = 'none';
-            setupForReauthorization();
+            if (dirHandle) setupForReauthorization();
+            else setupForInitialSelection();
         }
     }
     
-    // ... (All other functions from filterRecordsByScope downwards are identical to previous versions)
     function filterRecordsByScope(records, scope) {
         return records.filter(record => {
            const isHidden = record.tags.includes(HIDDEN_TAG_NAME);
@@ -341,7 +331,7 @@ document.addEventListener('DOMContentLoaded', () => {
                vocabulary.add(trimmedTag);
                pendingTags.add(trimmedTag);
                displayVocabulary();
-               displayCurrentTags();
+                displayCurrentTags();
            }
        }
    }
@@ -403,7 +393,6 @@ document.addEventListener('DOMContentLoaded', () => {
    }
     
     // --- 5. Event Listeners ---
-    // Note: The main listener is now set dynamically in initializeApp
     allTagsContainer.addEventListener('click', handleAddTagClick);
     currentTagsContainer.addEventListener('click', handleRemoveTagClick);
     saveNextBtn.addEventListener('click', () => navigate(1));
